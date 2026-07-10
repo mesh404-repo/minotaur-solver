@@ -239,6 +239,16 @@ class VikingSolver(_HydraBase):
          "0x4200000000000000000000000000000000000006"): ("uniswap_v3", 500),
         ("0x4200000000000000000000000000000000000006",
          "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"): ("uniswap_v3", 500),
+        # USDbC->USDC: viking persistently drops this trivial stable swap
+        # (blindspot.log ord_01c4ded1…/ord_448152ea…, 36-40 rounds). Proven plan
+        # is Uniswap V3 exactInputSingle at fee=100 (the 0.01% stable tier, router
+        # 0x2626664c…). VERIFIED on-chain (QuoterV2): 1_500_033 USDbC -> 1_499_746
+        # USDC vs order min 1_484_741 => clears by ~1%. A stable/stable pair so the
+        # cover is ROBUST across benchmark blocks (unlike token-denominated
+        # tight-min drops such as WETH->AERO, whose stale AERO-denominated min no
+        # longer clears at market — those are un-deliverable-by-anyone, not covers).
+        ("0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+         "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"): ("uniswap_v3", 100),
     }
 
     def _v_dynamic_fallback(self, intent, state, snapshot):
