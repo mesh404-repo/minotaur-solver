@@ -581,11 +581,24 @@ class MinerSolver(_ChampBase):
     #     959_902 vs min 841_483 (~14% headroom). WATCH: cbETH(=ETH)-denominated
     #     min, so a >14% ETH drop makes it revert to the pre-existing skip (never a
     #     regression). Net-positive EV.
+    #   USDC/WETH->exotic 0x00000e7e : uni fee=10000 (only live pool). Verified
+    #     clearing on-chain at live amounts; inert whenever the engine itself
+    #     serves the pair (fallback only fires on engine-empty).
+    #   USDC->0x43d6e8f4 : pancake fee=10000. The pair's uni pool went dark; the
+    #     only live venue is pancake. Engine tables may be uni-only here, which
+    #     would turn an engine-empty into a hard drop vs a champion that still
+    #     routes it — this entry converts that drop back into a fill.
     _HYDRA_DYN_FALLBACKS = {
         ('0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca',
          '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'): ('uniswap_v3', 100),
         ('0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22',
          '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'): ('uniswap_v3', 3000),
+        ('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+         '0x00000e7efa313f4e11bfff432471ed9423ac6b30'): ('uniswap_v3', 10000),
+        ('0x4200000000000000000000000000000000000006',
+         '0x00000e7efa313f4e11bfff432471ed9423ac6b30'): ('uniswap_v3', 10000),
+        ('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+         '0x43d6e8f4e413028365e9cf83d1e6c2181e8e3b07'): ('pancake_v3', 10000),
     }
 
     def _hydra_dyn_fallback(self, intent, state, snapshot):
