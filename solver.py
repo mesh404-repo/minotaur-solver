@@ -561,7 +561,59 @@ class MinerSolver(_ChampBase):
                 return cplan
         except Exception:
             logger.exception('[hydra] census fallback failed')
+        try:
+            dplan = self._hydra_dyn_fallback(intent, state, snapshot)
+            if dplan is not None:
+                return dplan
+        except Exception:
+            logger.exception('[hydra] dyn fallback failed')
         return None
+
+    # PAIR-LEVEL runtime covers (any amount), unlike the exact-(tin,tout,amt)
+    # _HYDRA_STATIC_COVERS. Fires only here, AFTER the engine returned empty, so
+    # it is strictly fill-only-empty: it can lift a champion-0 to a delivery but
+    # can never drop/regress an order the engine serves. Each pair is a champ-drop
+    # verified deliverable on-chain (QuoterV2) at the live amount via vet_drops.py.
+    #   USDbC->USDC : uni fee=100 (0.01% stable). Drift-immune (stable/stable):
+    #     1_500_033 USDbC -> 1_499_746 USDC vs min 1_484_741. Current champion
+    #     drops it on 3+ live orders (ord_448152ea/ord_13eabae/ord_de1b8014).
+    #   cbETH->USDC : uni fee=3000. Most-recurring champ drop (ord_97b65cc). Clears
+    #     959_902 vs min 841_483 (~14% headroom). WATCH: cbETH(=ETH)-denominated
+    #     min, so a >14% ETH drop makes it revert to the pre-existing skip (never a
+    #     regression). Net-positive EV.
+    _HYDRA_DYN_FALLBACKS = {
+        ('0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca',
+         '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'): ('uniswap_v3', 100),
+        ('0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22',
+         '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'): ('uniswap_v3', 3000),
+    }
+
+    def _hydra_dyn_fallback(self, intent, state, snapshot):
+        """Last-resort pair-level single-hop for champ-drop pairs the engine
+        flakes to empty on. Zero-RPC: encodes approve + exactInputSingle at the
+        proven venue/param; amount_out_minimum is 0 in calldata (the harness
+        enforces the order min at the intent level), so a below-min or empty pool
+        just reverts back to the skip we already had."""
+        p = self._normalized_swap_params(intent, state)
+        tin = str(p.get('input_token', '') or '').lower()
+        tout = str(p.get('output_token', '') or '').lower()
+        spec = self._HYDRA_DYN_FALLBACKS.get((tin, tout))
+        if not spec:
+            return None
+        amount_in = int(p.get('input_amount', 0) or 0)
+        if amount_in <= 0:
+            return None
+        chain_id = int(state.chain_id or (snapshot.chain_id if snapshot else 0) or 0)
+        if chain_id != 8453:
+            return None
+        min_out = int(p.get('min_output_amount', 0) or 0)
+        venue, param = spec
+        cand = {'venue': venue, 'param': int(param), 'out': max(min_out, 1),
+                'gas_est': 150000, 'gas_model': 450000, 'chain': 8453}
+        plan = self._build_singlehop_plan(intent, state, snapshot, cand, tin, tout, amount_in, chain_id)
+        if plan is not None:
+            logger.info('[hydra] dyn fallback %s->%s amt=%s via %s/%s', tin[:8], tout[:8], amount_in, venue, param)
+        return plan
 
     def check_trigger(self, intent, state, snapshot=None):
         try:
